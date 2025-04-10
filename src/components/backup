@@ -1,0 +1,466 @@
+// src/components/BattleScreen.js
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { useGame } from '../contexts/GameContext'; // useGame 훅 사용으로 복구
+import PokemonCard from './PokemonCard';
+import BattleLog from './BattleLog';
+import MoveSelection from './MoveSelection';
+import { fetchPokemonDetails, fetchMoveDetails } from '../utils/pokeapi';
+import { calculateDamage, applyEffects, handleStatusEffects, checkAccuracy } from '../utils/battleLogic';
+
+function BattleScreen({ onBattleEnd }) {
+  const { playerTeam: initialPlayerTeam, currentStage } = useGame();
+  const [playerTeam, setInternalPlayerTeam] = useState(
+      initialPlayerTeam.map(p => ({ ...p }))
+  );
+  const [opponentTeam, setOpponentTeam] = useState([]);
+  const [playerCurrentPokemonIndex, setPlayerCurrentPokemonIndex] = useState(0);
+  const [opponentCurrentPokemonIndex, setOpponentCurrentPokemonIndex] = useState(0);
+  const [battleLog, setBattleLog] = useState([]);
+  const [isPlayerTurn, setIsPlayerTurn] = useState(true);
+  const [loadingOpponent, setLoadingOpponent] = useState(true);
+  const [loadingMoves, setLoadingMoves] = useState(false);
+  const [turnInProgress, setTurnInProgress] = useState(false);
+  const [showSwitchMenu, setShowSwitchMenu] = useState(false);
+
+  const playerPokemon = playerTeam[playerCurrentPokemonIndex];
+  const opponentPokemon = opponentTeam[opponentCurrentPokemonIndex];
+
+  // console.log(`Render - Stage: ${currentStage}, Opponent Index: ${opponentCurrentPokemonIndex}, Player Turn: ${isPlayerTurn}, Turn Progress: ${turnInProgress}`);
+  // console.log("Current Opponent Pokemon:", opponentPokemon);
+
+  const addLog = useCallback((message) => {
+    setBattleLog(prev => {
+        const newLog = [...prev, message];
+        if (newLog.length > 20) {
+            return newLog.slice(newLog.length - 20);
+        }
+        return newLog;
+    });
+  }, []);
+
+  useEffect(() => {
+    const setupOpponentTeam = async () => {
+        setLoadingOpponent(true);
+        setOpponentTeam([]);
+        setOpponentCurrentPokemonIndex(0);
+        setBattleLog([]);
+        addLog(`${currentStage} 단계 시작!`);
+        const opponentIds = [];
+        while (opponentIds.length < 3) {
+            const randomId = Math.floor(Math.random() * 151) + 1;
+            if (!opponentIds.includes(randomId)) {
+                opponentIds.push(randomId);
+            }
+        }
+
+        try {
+            const teamDetailsPromises = opponentIds.map(id => fetchPokemonDetails(id));
+            const teamDetails = await Promise.all(teamDetailsPromises);
+
+            const processedTeamPromises = teamDetails.map(async (p) => {
+                 const moveUrls = p.moves
+                     .map(m => m.move.url)
+                     .sort(() => 0.5 - Math.random())
+                     .slice(0, 4);
+                 const moveDetailsPromises = moveUrls.map(url => fetchMoveDetails(url));
+                 const resolvedMoveDetails = await Promise.all(moveDetailsPromises);
+                 return {
+                     ...p,
+                     currentHp: p.stats.find(s => s.stat.name === 'hp').base_stat,
+                     status: null,
+                     statChanges: { attack: 0, defense: 0, 'special-attack': 0, 'special-defense': 0, speed: 0 },
+                     isConfused: false,
+                     heldItem: null,
+                     moves: resolvedMoveDetails.filter(m => m),
+                 };
+             });
+
+            const processedTeam = await Promise.all(processedTeamPromises);
+            setOpponentTeam(processedTeam);
+
+            if (processedTeam.length > 0 && processedTeam[0]) {
+                 addLog(`상대 트레이너가 ${processedTeam[0].name}을(를) 내보냈다!`);
+            } else {
+                 addLog("오류: 상대 팀을 구성하지 못했습니다.");
+            }
+
+        } catch (error) {
+            console.error("상대 팀 로딩 또는 기술 정보 로딩 실패:", error);
+            addLog("오류: 상대 팀 정보를 가져오지 못했습니다.");
+        } finally {
+            setLoadingOpponent(false);
+            setIsPlayerTurn(true);
+            setTurnInProgress(false);
+        }
+    };
+    setupOpponentTeam();
+  }, [currentStage, addLog]);
+
+
+  // 턴 종료 및 다음 턴 시작 처리
+  const nextTurn = useCallback(() => {
+    console.log("--- nextTurn 시작 ---");
+    let playerFaintedAfterEffects = false;
+    let opponentFaintedAfterEffects = false;
+
+    const currentPlayerState = playerTeam[playerCurrentPokemonIndex];
+    const currentOpponentState = opponentTeam[opponentCurrentPokemonIndex];
+
+    // --- 상태 효과 적용 ---
+    if (currentPlayerState && currentPlayerState.currentHp > 0) {
+        const { hpLost, stillPoisoned, stillBurned } = handleStatusEffects(currentPlayerState, 'endTurn');
+        if (hpLost > 0) {
+            const newHp = Math.max(0, currentPlayerState.currentHp - hpLost);
+            setInternalPlayerTeam(prev => prev.map((p, i) => i === playerCurrentPokemonIndex ? { ...p, currentHp: newHp } : p));
+            if (stillPoisoned) addLog(`${currentPlayerState.name}은(는) 독 데미지를 입었다!`);
+            if (stillBurned) addLog(`${currentPlayerState.name}은(는) 화상 데미지를 입었다!`);
+            if (newHp === 0) playerFaintedAfterEffects = true;
+        }
+    }
+    if (currentOpponentState && currentOpponentState.currentHp > 0) {
+        const { hpLost, stillPoisoned, stillBurned } = handleStatusEffects(currentOpponentState, 'endTurn');
+        if (hpLost > 0) {
+            const newOpponentHp = Math.max(0, currentOpponentState.currentHp - hpLost);
+            setOpponentTeam(prev => prev.map((p, i) => i === opponentCurrentPokemonIndex ? { ...p, currentHp: newOpponentHp } : p));
+            if (stillPoisoned) addLog(`상대 ${currentOpponentState.name}은(는) 독 데미지를 입었다!`);
+            if (stillBurned) addLog(`상대 ${currentOpponentState.name}은(는) 화상 데미지를 입었다!`);
+            if (newOpponentHp === 0) opponentFaintedAfterEffects = true;
+        }
+    }
+
+    // --- 쓰러짐 최종 판정 ---
+    const finalPlayerHp = playerFaintedAfterEffects ? 0 : currentPlayerState?.currentHp ?? 0;
+
+    // ★★★★★ 판정 직전 상대 HP 값 로깅 ★★★★★
+    const opponentHpForCheck = currentOpponentState?.currentHp ?? 0;
+    console.log(`[nextTurn] Opponent HP value right before faint check: ${opponentHpForCheck}`); // <-- 로그 추가
+    const finalOpponentHp = opponentFaintedAfterEffects ? 0 : opponentHpForCheck;
+
+    const isPlayerFainted = finalPlayerHp <= 0;
+    const isOpponentFainted = finalOpponentHp <= 0;
+
+    console.log(`Faint check - Player Fainted: ${isPlayerFainted} (HP: ${finalPlayerHp}), Opponent Fainted: ${isOpponentFainted} (HP: ${finalOpponentHp})`);
+    // if (opponentFaintedAfterEffects && !isOpponentFainted) console.warn("Opponent faint flag mismatch after effects!");
+    // if (playerFaintedAfterEffects && !isPlayerFainted) console.warn("Player faint flag mismatch after effects!");
+
+
+    // --- 후속 처리 ---
+    if (isOpponentFainted) {
+        if (!opponentFaintedAfterEffects && currentOpponentState) { // 로그 중복 방지 및 currentOpponentState null 체크
+             addLog(`상대 ${currentOpponentState.name}은(는) 쓰러졌다!`);
+        }
+        const nextOpponentIndex = opponentCurrentPokemonIndex + 1;
+        console.log(`Opponent fainted! Handling switch/win. Next index: ${nextOpponentIndex}, team length: ${opponentTeam.length}`);
+
+        if (nextOpponentIndex < opponentTeam.length) {
+            const nextOpponent = opponentTeam[nextOpponentIndex];
+            console.log("Attempting to switch to next opponent:", nextOpponent);
+            if (nextOpponent) {
+              addLog(`상대 트레이너가 ${nextOpponent.name}을(를) 내보냈다!`);
+              setOpponentCurrentPokemonIndex(nextOpponentIndex);
+              setIsPlayerTurn(true);
+              setTurnInProgress(false);
+              console.log("--- nextTurn 종료 (상대 교체) ---");
+            } else {
+              console.error("오류: 다음 상대 포켓몬 데이터가 유효하지 않습니다.", nextOpponentIndex);
+              addLog("오류: 다음 상대 포켓몬을 내보낼 수 없습니다.");
+              onBattleEnd('win');
+            }
+            return;
+        } else {
+            addLog("상대의 모든 포켓몬을 쓰러뜨렸다!");
+            onBattleEnd('win');
+            console.log("--- nextTurn 종료 (승리) ---");
+            return;
+        }
+    }
+
+    if (isPlayerFainted) {
+         if (!playerFaintedAfterEffects && currentPlayerState) { // 로그 중복 방지 및 currentPlayerState null 체크
+             addLog(`${currentPlayerState.name}은(는) 쓰러졌다!`);
+        }
+        const availablePokemon = playerTeam.filter((p) => p.currentHp > 0);
+        console.log(`Player fainted! Available Pokemon count (excluding current): ${availablePokemon.filter((p, i) => i !== playerCurrentPokemonIndex).length}`);
+        if (availablePokemon.length > 0 && availablePokemon.some((p, i) => i !== playerCurrentPokemonIndex)) {
+             addLog("교체할 포켓몬을 선택하세요!");
+             setShowSwitchMenu(true);
+             setTurnInProgress(false);
+        } else {
+             addLog("모든 포켓몬이 쓰러졌다...");
+             onBattleEnd('lose');
+        }
+        console.log("--- nextTurn 종료 (플레이어 쓰러짐/교체) ---");
+        return;
+    }
+
+    console.log("다음 턴으로 전환");
+    setIsPlayerTurn(prev => !prev);
+    setTurnInProgress(false);
+    console.log("--- nextTurn 종료 (턴 전환) ---");
+
+  }, [playerTeam, opponentTeam, playerCurrentPokemonIndex, opponentCurrentPokemonIndex, onBattleEnd, addLog]); // useCallback 의존성 배열
+
+
+  // 상대 AI 턴 로직 (useEffect) - 디버깅 로그 추가
+   useEffect(() => {
+     // --- 로그 추가: Effect 시작 시점의 상태 값 확인 ---
+     console.log("[Opponent Effect Check]", {
+        loadingOpponent,
+        isPlayerTurn,
+        turnInProgress, // 현재 turnInProgress 상태 값 확인
+        opponentExists: !!opponentPokemon,
+        opponentHp: opponentPokemon?.currentHp
+     });
+
+     // 조건 1: 기본적인 실행 조건 체크
+     if (loadingOpponent) {
+        console.log("[Opponent Effect Skipped]: Loading opponent data.");
+        return;
+     }
+     if (isPlayerTurn) {
+        console.log("[Opponent Effect Skipped]: It's player's turn.");
+        return;
+     }
+      if (!opponentPokemon) {
+        console.log("[Opponent Effect Skipped]: Opponent Pokemon data is missing.");
+        return;
+     }
+     if (opponentPokemon.currentHp <= 0) {
+        console.log(`[Opponent Effect Skipped]: Opponent Pokemon ${opponentPokemon.name} has fainted.`);
+         // 이미 쓰러진 포켓몬이면 턴을 넘겨야 할 수도 있음 (무한 루프 방지)
+         // 하지만 보통 nextTurn에서 처리되므로 여기서는 일단 스킵
+         // nextTurn(); // 재귀 호출 위험! 주의 필요
+        return;
+     }
+
+     // 조건 2: 이미 턴이 진행 중인지 체크 (중복 실행 방지)
+     if (turnInProgress) {
+         console.log("[Opponent Effect Skipped]: Turn is already in progress.");
+         return;
+     }
+
+     // 모든 조건을 통과하면 실제 턴 로직 실행
+     console.log(">>> Starting Opponent Turn Logic <<<");
+     setTurnInProgress(true); // ★★★ 턴 시작 마킹 ★★★
+     addLog(`상대 ${opponentPokemon.name}의 턴!`);
+
+     const turnAction = async () => {
+        console.log(">>> Opponent turnAction started <<<");
+         try {
+             // 상태이상 체크
+             const statusEffect = handleStatusEffects(opponentPokemon, 'beforeMove');
+             if (!statusEffect.canMove) {
+                 addLog(`상대 ${opponentPokemon.name}은(는) ${statusEffect.cause} 때문에 움직일 수 없다!`);
+                 setTimeout(nextTurn, 1000); // nextTurn 호출 시 내부에서 turnInProgress=false 설정됨
+                 return; // 행동 불가 시 여기서 종료
+             }
+
+             // 혼란 체크
+             if (opponentPokemon.isConfused) {
+                 addLog(`상대 ${opponentPokemon.name}은(는) 혼란 상태다!`);
+                 if (Math.random() < 0.33) {
+                     addLog(`상대 ${opponentPokemon.name}은(는) 혼란 때문에 자신을 공격했다!`);
+                     const selfDamageMove = { power: 40, type: { name: '???' }, accuracy: null, stat_changes: [], meta: {} };
+                     const { damage: selfDamage } = calculateDamage(opponentPokemon, opponentPokemon, selfDamageMove, addLog, true);
+                     const newHp = Math.max(0, opponentPokemon.currentHp - selfDamage);
+                     setOpponentTeam(prev => prev.map((p, i) => i === opponentCurrentPokemonIndex ? { ...p, currentHp: newHp } : p));
+                     addLog(`스스로 ${selfDamage}의 데미지를 입었다!`);
+                     setTimeout(nextTurn, 1500); // nextTurn 호출 시 내부에서 turnInProgress=false 설정됨
+                     return; // 행동 종료
+                 }
+             }
+
+             // 기술 선택 및 실행
+             if (!opponentPokemon.moves || opponentPokemon.moves.length === 0) {
+                 addLog(`오류: 상대 ${opponentPokemon.name}이(가) 사용할 기술이 없습니다!`);
+                 setTimeout(nextTurn, 1000);
+                 return;
+             }
+             const randomMove = opponentPokemon.moves[Math.floor(Math.random() * opponentPokemon.moves.length)];
+             console.log(`Opponent chose move:`, randomMove);
+             let moveDetails = randomMove; // 이미 상세 정보 로드됨 가정
+
+             addLog(`상대 ${opponentPokemon.name}의 ${moveDetails.name}!`);
+
+             if (!checkAccuracy(moveDetails, opponentPokemon, playerPokemon)) {
+                 addLog(`하지만 기술은 빗나갔다!`);
+                 setTimeout(nextTurn, 1000);
+                 return;
+             }
+
+             const { damage } = calculateDamage(opponentPokemon, playerPokemon, moveDetails, addLog);
+             const { targetPokemon: updatedPlayerPokemon, attackerPokemon: updatedOpponentPokemon } = applyEffects(opponentPokemon, playerPokemon, moveDetails, damage, addLog);
+
+             setInternalPlayerTeam(prev => prev.map((p, i) => i === playerCurrentPokemonIndex ? updatedPlayerPokemon : p));
+             setOpponentTeam(prev => prev.map((p, i) => i === opponentCurrentPokemonIndex ? updatedOpponentPokemon : p));
+
+             console.log("Opponent action finished. Scheduling nextTurn.");
+             setTimeout(() => {
+                 console.log("Executing nextTurn after opponent's action.");
+                 nextTurn(); // ★★★ 턴 종료 처리 호출 ★★★
+             }, 1500);
+
+         } catch(error) {
+             console.error("Error during opponent turn action:", error);
+             addLog("오류가 발생하여 상대 턴을 종료합니다.");
+             // 오류 발생 시에도 턴을 넘겨야 무한정 멈추는 것을 방지
+             setTimeout(nextTurn, 1000);
+         }
+         // finally 블록 불필요: 성공/실패 모두 setTimeout(nextTurn, ...) 호출하므로
+     };
+
+     // AI 행동 시작 (딜레이)
+     console.log("Scheduling opponent turnAction.");
+     const timeoutId = setTimeout(turnAction, 1000);
+
+     // 클린업 함수
+     return () => {
+        console.log("Opponent useEffect cleanup function ran.");
+        clearTimeout(timeoutId);
+        // 중요: Effect가 클린업될 때 turnInProgress를 강제로 false로 설정할지 여부
+        // 만약 Effect가 예상치 못하게 중단되는 경우를 대비해 추가 고려 가능
+        // setTurnInProgress(false);
+     }
+
+   // 의존성 배열: isPlayerTurn, opponentPokemon 객체 자체가 변경될 때 등
+   }, [isPlayerTurn, opponentPokemon, playerPokemon, loadingOpponent, addLog, nextTurn, opponentCurrentPokemonIndex, playerCurrentPokemonIndex]);
+
+
+  // 플레이어 턴: 기술 선택 처리
+  const handleMoveSelect = async (move) => {
+    if (!isPlayerTurn || turnInProgress || loadingMoves || !playerPokemon || playerPokemon.currentHp <= 0 || !opponentPokemon) return;
+    setTurnInProgress(true);
+
+    let moveDetails = move;
+    if (!moveDetails.power && moveDetails.url) {
+         setLoadingMoves(true);
+         try {
+             moveDetails = await fetchMoveDetails(moveDetails.url);
+             setInternalPlayerTeam(prev => prev.map((p, idx) => {
+                if (idx === playerCurrentPokemonIndex) {
+                    return { ...p, moves: p.moves.map(m => m.name === move.name ? moveDetails : m) };
+                } return p;
+             }));
+         } catch (error) {
+             console.error(`플레이어 기술 상세 정보 로드 실패 (${moveDetails.name}):`, error);
+             addLog(`오류: ${moveDetails.name} 기술 정보를 가져오지 못했습니다.`);
+             setLoadingMoves(false);
+             setTurnInProgress(false); return;
+         } finally { setLoadingMoves(false); }
+     }
+
+    addLog(`${playerPokemon.name}의 ${moveDetails.name}!`);
+
+    const statusEffect = handleStatusEffects(playerPokemon, 'beforeMove');
+     if (!statusEffect.canMove) {
+         addLog(`${playerPokemon.name}은(는) ${statusEffect.cause} 때문에 움직일 수 없다!`);
+         setTimeout(nextTurn, 1000); return;
+     }
+
+     if (playerPokemon.isConfused) {
+         addLog(`${playerPokemon.name}은(는) 혼란 상태다!`);
+          if (Math.random() < 0.33) {
+              addLog(`${playerPokemon.name}은(는) 혼란 때문에 자신을 공격했다!`);
+              const selfDamageMove = { power: 40, type: { name: '???' }, accuracy: null, stat_changes: [], meta: {} };
+              const { damage: selfDamage } = calculateDamage(playerPokemon, playerPokemon, selfDamageMove, addLog, true);
+              const newHp = Math.max(0, playerPokemon.currentHp - selfDamage);
+              setInternalPlayerTeam(prev => prev.map((p, i) => i === playerCurrentPokemonIndex ? { ...p, currentHp: newHp } : p));
+              addLog(`스스로 ${selfDamage}의 데미지를 입었다!`);
+              setTimeout(nextTurn, 1500); return;
+          }
+     }
+
+     if (!checkAccuracy(moveDetails, playerPokemon, opponentPokemon)) {
+         addLog(`하지만 기술은 빗나갔다!`);
+         setTimeout(nextTurn, 1000); return;
+     }
+
+    const { damage } = calculateDamage(playerPokemon, opponentPokemon, moveDetails, addLog);
+    const { targetPokemon: updatedOpponentPokemon, attackerPokemon: updatedPlayerPokemon } = applyEffects(playerPokemon, opponentPokemon, moveDetails, damage, addLog);
+
+     setOpponentTeam(prev => prev.map((p, i) => i === opponentCurrentPokemonIndex ? updatedOpponentPokemon : p));
+     setInternalPlayerTeam(prev => prev.map((p, i) => i === playerCurrentPokemonIndex ? updatedPlayerPokemon : p));
+
+    setTimeout(nextTurn, 1500);
+  };
+
+  // 포켓몬 교체 처리
+  const handleSwitchPokemon = (index) => {
+      if (index === playerCurrentPokemonIndex || playerTeam[index].currentHp <= 0 || turnInProgress) {
+          addLog("지금은 교체할 수 없습니다."); return;
+      }
+      const oldPokemon = playerPokemon;
+      const newPokemon = playerTeam[index];
+
+      addLog(`${oldPokemon.name}, 돌아와!`);
+       setInternalPlayerTeam(prev => prev.map((p, i) => {
+           if (i === playerCurrentPokemonIndex) {
+               return { ...p, statChanges: { attack: 0, defense: 0, 'special-attack': 0, 'special-defense': 0, speed: 0 } };
+           } return p;
+       }));
+
+      addLog(`가랏! ${newPokemon.name}!`);
+      setPlayerCurrentPokemonIndex(index);
+      setShowSwitchMenu(false);
+
+      setIsPlayerTurn(false);
+      setTurnInProgress(false); // 교체 후 상대 턴 시작 가능하게 리셋
+
+      console.log("Player switched Pokemon. Opponent's turn starts.");
+  };
+
+  // --- 렌더링 부분 ---
+  if (loadingOpponent) return <div>상대 트레이너 준비 중...</div>;
+  if (!playerPokemon) return <div>오류: 플레이어 포켓몬 정보 없음</div>;
+  if (!loadingOpponent && opponentTeam.length === 0) return <div>오류: 상대 팀 정보 로드 실패</div>;
+  // opponentPokemon이 로드되기 전일 수 있으므로 잠시 대기
+  if (!opponentPokemon && opponentTeam.length > 0) return <div>배틀 정보 준비 중...</div>;
+   // opponentPokemon 객체는 있는데 HP가 0 이하인 경우 (nextTurn에서 처리했어야 함)
+   // 이 경우는 로직 오류 가능성이 있으므로 로깅하고 UI 표시
+  // if (opponentPokemon && opponentPokemon.currentHp <= 0 && !loadingOpponent) {
+  //    console.warn("렌더링 시점 상대 포켓몬 HP 0 이하:", opponentPokemon);
+  // }
+
+
+  return (
+    <div className="battle-screen">
+      <div className="opponent-area">
+        {opponentPokemon && <PokemonCard key={'opp-' + (opponentPokemon.id || opponentCurrentPokemonIndex)} pokemon={opponentPokemon} isOpponent={true} />}
+      </div>
+      <div className="player-area">
+        {playerPokemon && <PokemonCard key={'player-' + (playerPokemon.id || playerCurrentPokemonIndex)} pokemon={playerPokemon} isOpponent={false} />}
+      </div>
+      <BattleLog logs={battleLog} />
+      <div className="battle-controls">
+        {isPlayerTurn && !showSwitchMenu && !turnInProgress && playerPokemon.currentHp > 0 && (
+          <>
+            <MoveSelection moves={playerPokemon.moves} onMoveSelect={handleMoveSelect} />
+             <button
+               onClick={() => setShowSwitchMenu(true)}
+               disabled={playerTeam.filter(p => p.currentHp > 0).length <= 1 || turnInProgress || loadingMoves}
+             >
+               포켓몬 교체
+             </button>
+          </>
+        )}
+        {showSwitchMenu && ( /* ... 교체 메뉴 UI ... */
+            <div className="switch-menu">
+                <h3>교체할 포켓몬을 선택하세요:</h3>
+                {playerTeam.map((p, index) => (
+                    p.currentHp > 0 && index !== playerCurrentPokemonIndex ? (
+                        <button key={p.id + '-' + index} onClick={() => handleSwitchPokemon(index)}>
+                            {p.name} (HP: {p.currentHp} / {p.stats.find(s => s.stat.name === 'hp').base_stat})
+                        </button>
+                    ) : null
+                ))}
+                 <button onClick={() => setShowSwitchMenu(false)}>취소</button>
+            </div>
+        )}
+         {!isPlayerTurn && !turnInProgress && opponentPokemon && opponentPokemon.currentHp > 0 && <p>상대의 턴...</p>}
+         {(turnInProgress || loadingMoves) && <p>...</p>}
+      </div>
+    </div>
+  );
+}
+
+export default BattleScreen;

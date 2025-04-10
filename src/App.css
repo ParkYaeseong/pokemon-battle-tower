@@ -1,0 +1,178 @@
+/* src/App.css */
+.App {
+  font-family: sans-serif;
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative; /* 자식 요소 absolute positioning 기준 */
+  min-height: 600px; /* 최소 높이 확보 */
+}
+
+.battle-screen {
+  position: relative;
+  height: 450px; /* 배틀 영역 높이 고정 */
+  border: 2px solid black;
+  background-color: #f0f0f0; /* 배경색 추가 */
+  /*background-image: url('src/asset/battle-background.jpg'); /* 배경 이미지 추가 (선택 사항) */
+  background-size: cover;
+}
+
+.opponent-area {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.player-area {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+}
+
+.battle-controls {
+  position: absolute;
+  bottom: 10px;
+  left: 180px; /* 플레이어 카드 옆 */
+  right: 10px;
+  height: 100px; /* 컨트롤 높이 */
+  border: 1px solid #ccc;
+  padding: 10px;
+  background-color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.move-selection button {
+  margin: 5px;
+  padding: 10px 15px;
+  cursor: pointer;
+}
+
+.battle-log {
+  position: absolute;
+  /* bottom: calc(100px + 20px); */ /* 이전 값 */
+  bottom: calc(100px + 140px); /* 플레이어 카드 위로 올리기 (컨트롤 높이 + 카드 대략적 높이 + 여백) */
+  left: calc(150px + 20px);   /* 플레이어 카드 오른쪽 */
+  right: calc(150px + 20px);  /* 상대 카드 왼쪽 */
+  /* width: calc(100% - 340px); */ /* 필요하다면 너비 직접 지정 */
+  height: 110px; /* 높이 약간 증가 */
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  background: rgba(245, 245, 245, 0.9); /* 배경 약간 더 불투명하게 */
+  padding: 8px;
+  font-size: 0.9em;
+  border-radius: 5px;
+  z-index: 1; /* 포켓몬 카드보다 아래에 오도록 (카드는 z-index: 5) */
+}
+
+.battle-log p {
+    margin: 2px 0;
+    padding-left: 5px;
+    border-bottom: 1px dashed #eee;
+}
+
+
+/* 포켓몬 카드 스타일 */
+/* PokemonCard.js 내 styled-components로 이동 또는 여기서 정의 */
+
+/* 기타 필요한 스타일 추가 */
+button {
+    padding: 8px 12px;
+    margin: 5px;
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.switch-menu button {
+    display: block; /* 세로로 나열 */
+    margin-bottom: 5px;
+}
+
+/* --- 타입별 색상 --- */
+/* Type Badge Backgrounds & Move Button Borders */
+.type-badge.type-normal, .move-button.type-normal { background-color: #A8A878; border-color: #6D6D4E; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-fire, .move-button.type-fire { background-color: #F08030; border-color: #9C531F; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-water, .move-button.type-water { background-color: #6890F0; border-color: #445E9C; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-electric, .move-button.type-electric { background-color: #F8D030; border-color: #A1871F; color: black; }
+.type-badge.type-grass, .move-button.type-grass { background-color: #78C850; border-color: #4E8234; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-ice, .move-button.type-ice { background-color: #98D8D8; border-color: #638D8D; color: black; }
+.type-badge.type-fighting, .move-button.type-fighting { background-color: #C03028; border-color: #7D1F1A; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-poison, .move-button.type-poison { background-color: #A040A0; border-color: #682A68; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-ground, .move-button.type-ground { background-color: #E0C068; border-color: #927D44; color: black; }
+.type-badge.type-flying, .move-button.type-flying { background-color: #A890F0; border-color: #6D5E9C; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-psychic, .move-button.type-psychic { background-color: #F85888; border-color: #A13959; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-bug, .move-button.type-bug { background-color: #A8B820; border-color: #6D7815; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-rock, .move-button.type-rock { background-color: #B8A038; border-color: #786824; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-ghost, .move-button.type-ghost { background-color: #705898; border-color: #493963; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-dragon, .move-button.type-dragon { background-color: #7038F8; border-color: #4924A1; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-dark, .move-button.type-dark { background-color: #705848; border-color: #49392F; color: white; text-shadow: 1px 1px 1px #333; }
+.type-badge.type-steel, .move-button.type-steel { background-color: #B8B8D0; border-color: #787887; color: black; }
+.type-badge.type-fairy, .move-button.type-fairy { background-color: #EE99AC; border-color: #9B6470; color: black; }
+.type-badge.type-unknown, .move-button.type-unknown { background-color: #68A090; border-color: #44685E; color: white; text-shadow: 1px 1px 1px #333; } /* ??? 타입 추가 */
+
+/* 타입 뱃지 공통 스타일 */
+.type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    margin: 2px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    border: 1px solid transparent; /* border-color 대비 */
+}
+
+/* --- 상태 이상 뱃지 색상 (텍스트 색상 조정) --- */
+.status-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    margin-left: 5px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+.status-badge.status-poison { background-color: #A040A0; color: white; }
+.status-badge.status-toxic { background-color: #7030A0; color: white; } /* 맹독 구분 */
+.status-badge.status-burn { background-color: #F08030; color: white; }
+.status-badge.status-paralysis { background-color: #F8D030; color: black; }
+.status-badge.status-sleep { background-color: #A8A8A8; color: white; }
+.status-badge.status-freeze { background-color: #98D8D8; color: black; }
+
+/* 혼란 상태 텍스트 스타일 (뱃지 대신 사용 시) */
+.status-confusion {
+    color: magenta;
+    font-weight: bold;
+    margin-left: 5px;
+}
+
+/* 기술 버튼 스타일 보강 */
+.move-button {
+    /* 기존 MoveSelection.js의 styled-component에서 스타일 가져오거나 여기서 정의 */
+    margin: 3px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border: 2px solid #ccc; /* 테두리 두께 조정 */
+    border-radius: 5px;
+    font-size: 0.9em;
+    transition: transform 0.1s ease;
+}
+.move-button:hover:not(:disabled) {
+    transform: scale(1.05);
+}
+/* 타입별 border-color는 위에서 이미 정의됨 */
+
+/* 기술 버튼 내 타입 표시 (선택적) */
+.move-button .move-type-indicator {
+    font-size: 0.8em;
+    margin-left: 8px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.7); /* 반투명 흰색 배경 */
+    color: #333;
+    border: 1px solid #ccc;
+}
